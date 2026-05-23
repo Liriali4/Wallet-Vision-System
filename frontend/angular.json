@@ -29,9 +29,9 @@
               "src/assets"
             ],
             "styles": [
-              "src/styles/global.css",
+              "src/styles/tailwind.css",
               "src/styles/design-system.css",
-              "src/styles/tailwind.css"
+              "src/styles/global.css"
             ],
             "scripts": []
           },

@@ -1,11 +1,10 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
     
-    # Remove public folder from URL
-    RewriteRule ^(.*)$ public/$1 [L]
-    
-    # Handle requests
-    RewriteCond %{REQUEST_FILENAME} !-d
+    # Don't rewrite if it's an actual file or directory
     RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [QSA,L]
+    RewriteCond %{REQUEST_FILENAME} !-d
+    
+    # Rewrite everything else to public/index.php
+    RewriteRule ^(.*)$ public/index.php [QSA,L]
 </IfModule>

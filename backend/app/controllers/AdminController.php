@@ -81,6 +81,26 @@ class AdminController
         }
     }
 
+    public function updateUserRole(): void
+    {
+        try {
+            $this->requireAdmin();
+            $id = isset($_GET['id']) ? (int)$_GET['id'] : null;
+            if (!$id) { \Response::error('ID do usuário obrigatório', 400); return; }
+            
+            $data = json_decode(file_get_contents('php://input'), true);
+            if (!$data || !isset($data['role'])) {
+                \Response::error('Campo obrigatório: role', 400);
+                return;
+            }
+
+            $this->userRepository->updateRole($id, $data['role']);
+            \Response::success(null, 'Role do usuário alterada');
+        } catch (Exception $e) {
+            \Response::error($e->getMessage(), 400);
+        }
+    }
+
     public function getStatistics(): void
     {
         try {

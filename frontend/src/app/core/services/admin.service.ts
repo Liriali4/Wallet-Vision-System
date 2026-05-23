@@ -28,6 +28,10 @@ export class AdminService {
     return this.apiService.delete(`admin/users/delete?id=${id}`);
   }
 
+  updateUserRole(id: number, role: string): Observable<any> {
+    return this.apiService.put(`admin/users/update-role?id=${id}`, { role });
+  }
+
   getStatistics(): Observable<any> {
     return this.apiService.get<any>('admin/stats');
   }

@@ -1,9 +1,9 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule, Router } from '@angular/router';
-import { AuthService } from '../../core/services/auth.service';
-import { NavbarComponent } from '../components/navbar.component';
-import { SidebarComponent } from '../components/sidebar.component';
+import { AuthService } from '../core/services/auth.service';
+import { NavbarComponent } from '../shared/components/navbar.component';
+import { SidebarComponent } from '../shared/components/sidebar.component';
 
 @Component({
   selector: 'app-main-layout',

@@ -1,14 +1,8 @@
-import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+﻿import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, throwError } from 'rxjs';
+import { catchError, tap } from 'rxjs/operators';
 import { ApiService } from './api.service';
-
-interface Category {
-  id: number;
-  name: string;
-  type: 'income' | 'expense';
-  color: string;
-  icon: string;
-}
+import { Category, CategoryFilters } from '../interfaces/api.interface';
 
 @Injectable({
   providedIn: 'root'
@@ -17,29 +11,98 @@ export class CategoryService {
   private categoriesSubject = new BehaviorSubject<Category[]>([]);
   public categories$ = this.categoriesSubject.asObservable();
 
-  constructor(private apiService: ApiService) { }
+  private loadingSubject = new BehaviorSubject<boolean>(false);
+  public loading$ = this.loadingSubject.asObservable();
 
-  getCategories(type?: 'income' | 'expense'): Observable<Category[]> {
-    let endpoint = 'categories';
-    if (type) {
-      endpoint += `?type=${type}`;
-    }
-    return this.apiService.get<Category[]>(endpoint);
+  constructor(private apiService: ApiService) {}
+
+  getCategories(filters: CategoryFilters = {}): Observable<Category[]> {
+    this.loadingSubject.next(true);
+
+    const params = new URLSearchParams();
+    if (filters.type) params.append('type', filters.type);
+
+    const endpoint = `categories?${params.toString()}`;
+
+    return this.apiService.get<Category[]>(endpoint).pipe(
+      tap(categories => this.categoriesSubject.next(categories || [])),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
+    );
   }
 
-  createCategory(data: any): Observable<any> {
-    return this.apiService.post('categories', data);
+  getCategoriesByType(type: 'income' | 'expense'): Observable<Category[]> {
+    return this.getCategories({ type });
   }
 
-  updateCategory(id: number, data: any): Observable<any> {
-    return this.apiService.put(`categories/update?id=${id}`, data);
+  createCategory(data: Partial<Category>): Observable<Category> {
+    this.loadingSubject.next(true);
+
+    return this.apiService.post<Category>('categories', data).pipe(
+      tap(newCategory => {
+        const current = this.categoriesSubject.value;
+        this.categoriesSubject.next([...current, newCategory]);
+      }),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
+    );
   }
 
-  deleteCategory(id: number): Observable<any> {
-    return this.apiService.delete(`categories/delete?id=${id}`);
+  updateCategory(id: number, data: Partial<Category>): Observable<Category> {
+    this.loadingSubject.next(true);
+
+    return this.apiService.put<Category>(`categories/update?id=${id}`, data).pipe(
+      tap(updatedCategory => {
+        const current = this.categoriesSubject.value;
+        const index = current.findIndex(c => c.id === id);
+        if (index !== -1) {
+          current[index] = updatedCategory;
+          this.categoriesSubject.next([...current]);
+        }
+      }),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
+    );
+  }
+
+  deleteCategory(id: number): Observable<void> {
+    this.loadingSubject.next(true);
+
+    return this.apiService.delete<void>(`categories/delete?id=${id}`).pipe(
+      tap(() => {
+        const current = this.categoriesSubject.value;
+        this.categoriesSubject.next(current.filter(c => c.id !== id));
+      }),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
+    );
   }
 
   setCategories(categories: Category[]): void {
     this.categoriesSubject.next(categories);
+  }
+
+  getCategoryById(id: number): Category | undefined {
+    return this.categoriesSubject.value.find(c => c.id === id);
+  }
+
+  getIncomeCategories(): Observable<Category[]> {
+    return this.getCategoriesByType('income');
+  }
+
+  getExpenseCategories(): Observable<Category[]> {
+    return this.getCategoriesByType('expense');
   }
 }

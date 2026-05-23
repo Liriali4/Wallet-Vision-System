@@ -5,6 +5,7 @@ CREATE DATABASE IF NOT EXISTS wallet_vision CHARACTER SET utf8mb4 COLLATE utf8mb
 USE wallet_vision;
 
 SET FOREIGN_KEY_CHECKS=0;
+DROP TABLE IF EXISTS password_resets;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS goals;
 DROP TABLE IF EXISTS transactions;
@@ -114,7 +115,23 @@ CREATE TABLE goals (
   INDEX idx_end_date (end_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+
 -- ============================================
+-- PASSWORD RESETS TABLE
+-- ============================================
+CREATE TABLE password_resets (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  user_id INT UNSIGNED NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  token_hash VARCHAR(255) NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  used_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_password_resets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_password_resets_email (email),
+  INDEX idx_password_resets_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- SESSIONS TABLE (for JWT refresh tokens)
 -- ============================================
 CREATE TABLE sessions (
@@ -155,23 +172,6 @@ CREATE TABLE reports (
 -- CREATE SAMPLE DATA (OPTIONAL)
 -- ============================================
 
--- Sample admin user
-INSERT INTO users (email, password, full_name, role) VALUES (
-  'admin@personal-finance.com',
-  '$2y$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcg7b3XeKeUxWdeS86E36P4/1Cm', -- password: admin
-  'Administrator',
-  'admin'
-);
-
--- Sample regular user
-INSERT INTO users (email, password, full_name, role, locale, theme) VALUES (
-  'user@personal-finance.com',
-  '$2y$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcg7b3XeKeUxWdeS86E36P4/1Cm', -- password: password
-  'User Demo',
-  'user',
-  'pt',
-  'dark'
-);
 
 -- Default categories for user 1
 INSERT INTO categories (user_id, name, type, color, icon) VALUES
@@ -198,3 +198,5 @@ INSERT INTO goals (user_id, title, target_amount, start_date, end_date, priority
 (1, 'Fundo de Emergência', 10000.00, '2026-01-01', '2026-12-31', 'high', 'in_progress'),
 (1, 'Férias de Verão', 3000.00, '2026-01-01', '2026-06-30', 'medium', 'in_progress'),
 (1, 'Novo Laptop', 2000.00, '2026-01-01', '2026-12-31', 'medium', 'not_started');
+
+

@@ -20,8 +20,13 @@ export class AuthInterceptor implements HttpInterceptor {
 
   intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
     const token = this.authService.getToken();
+    const isPublicAuthRoute =
+      request.url.includes('/auth/login') ||
+      request.url.includes('/auth/register') ||
+      request.url.includes('/auth/forgot-password') ||
+      request.url.includes('/auth/reset-password');
 
-    if (token) {
+    if (token && !isPublicAuthRoute) {
       request = request.clone({
         setHeaders: {
           Authorization: `Bearer ${token}`
@@ -31,7 +36,7 @@ export class AuthInterceptor implements HttpInterceptor {
 
     return next.handle(request).pipe(
       catchError((error: HttpErrorResponse) => {
-        if (error.status === 401) {
+        if (error.status === 401 && !isPublicAuthRoute) {
           this.authService.logout();
           this.router.navigate(['/auth/login']);
         }

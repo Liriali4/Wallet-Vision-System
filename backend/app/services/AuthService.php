@@ -9,10 +9,12 @@ use Exception;
 class AuthService
 {
     private UserRepository $userRepository;
+    private array $appConfig;
 
     public function __construct()
     {
         $this->userRepository = new UserRepository();
+        $this->appConfig = require __DIR__ . '/../../config/app.php';
     }
 
     public function register(string $email, string $password, string $fullName): User
@@ -99,5 +101,86 @@ class AuthService
         if (isset($data['theme']))     $user->theme     = $data['theme'];
 
         $this->userRepository->update($user);
+    }
+
+    public function requestPasswordReset(string $email): ?array
+    {
+        $email = strtolower(trim($email));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return null;
+        }
+
+        $user = $this->userRepository->findByEmail($email);
+        if (!$user) {
+            return null;
+        }
+
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        $tokenHash = hash('sha256', $token);
+        $expiresAt = date('Y-m-d H:i:s', time() + 3600);
+
+        $this->userRepository->createPasswordResetToken($user->id, $email, $tokenHash, $expiresAt);
+        return $this->sendResetEmail($email, $token);
+    }
+
+    public function resetPassword(string $token, string $newPassword): void
+    {
+        if (strlen($newPassword) < 8) {
+            throw new Exception('A nova senha deve ter pelo menos 8 caracteres');
+        }
+
+        if (!$token) {
+            throw new Exception('Token invÃ¡lido');
+        }
+
+        $tokenHash = hash('sha256', $token);
+        $reset = $this->userRepository->findPasswordResetByHash($tokenHash);
+        if (!$reset) {
+            throw new Exception('Token invÃ¡lido ou expirado');
+        }
+
+        $hash = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+        $this->userRepository->updatePassword((int)$reset['user_id'], $hash);
+        $this->userRepository->markPasswordResetAsUsed((int)$reset['id']);
+    }
+
+    private function sendResetEmail(string $email, string $token): ?array
+    {
+        $baseUrl = rtrim($this->appConfig['client_url'] ?? 'http://localhost:4200', '/');
+        $resetUrl = "{$baseUrl}/auth/reset-password?token={$token}";
+
+        $html = "
+            <h2>RedefiniÃ§Ã£o de senha - Wallet Vision</h2>
+            <p>Recebemos um pedido para redefinir a sua senha.</p>
+            <p><a href=\"{$resetUrl}\">Clique aqui para redefinir a senha</a></p>
+            <p>Este link expira em 1 hora.</p>
+            <p>Se vocÃª nÃ£o solicitou esta alteraÃ§Ã£o, ignore este e-mail.</p>
+        ";
+
+        try {
+            $mailer = new SmtpMailer($this->appConfig['smtp'] ?? []);
+            $mailer->send($email, 'Redefinir senha - Wallet Vision', $html);
+            return null;
+        } catch (Exception $e) {
+            $isDev = ($this->appConfig['env'] ?? 'development') !== 'production';
+            if (!$isDev) {
+                throw $e;
+            }
+
+            $logFile = __DIR__ . '/../../password-reset-links.log';
+            $line = sprintf(
+                "[%s] email=%s reset_url=%s error=%s\n",
+                date('Y-m-d H:i:s'),
+                $email,
+                $resetUrl,
+                $e->getMessage()
+            );
+            file_put_contents($logFile, $line, FILE_APPEND);
+
+            return [
+                'reset_url' => $resetUrl,
+                'email_delivery' => 'fallback_log'
+            ];
+        }
     }
 }

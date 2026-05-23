@@ -3,78 +3,86 @@
 namespace App\Repositories;
 
 use App\Models\Category;
-use Exception;
+use App\Database;
 
 class CategoryRepository
 {
-    private \Database $db;
+    private \PDO $pdo;
 
     public function __construct()
     {
-        $this->db = \Database::getInstance();
+        $this->pdo = Database::getInstance();
     }
 
     public function findById(int $id, int $userId): ?Category
     {
-        $stmt  = $this->db->query('SELECT * FROM categories WHERE id = ? AND user_id = ?', [$id, $userId]);
-        $result = $stmt->get_result();
-        $row   = $result->fetch_assoc();
-        $stmt->close();
+        $stmt = $this->pdo->prepare('SELECT * FROM categories WHERE id = ? AND user_id = ?');
+        $stmt->execute([$id, $userId]);
+        $row = $stmt->fetch();
         return $row ? $this->map($row) : null;
     }
 
     public function findAll(int $userId): array
     {
-        $stmt   = $this->db->query('SELECT * FROM categories WHERE user_id = ? ORDER BY type ASC, order_index ASC, name ASC', [$userId]);
-        $result = $stmt->get_result();
-        $out    = [];
-        while ($row = $result->fetch_assoc()) $out[] = $this->map($row);
-        $stmt->close();
-        return $out;
+        $stmt = $this->pdo->prepare('SELECT * FROM categories WHERE user_id = ? ORDER BY type ASC, order_index ASC, name ASC');
+        $stmt->execute([$userId]);
+        $rows = $stmt->fetchAll();
+        return array_map([$this, 'map'], $rows);
     }
 
     public function findByUser(int $userId, ?string $type = null): array
     {
         if ($type) {
-            $stmt = $this->db->query(
-                'SELECT * FROM categories WHERE user_id = ? AND type = ? AND is_active = 1 ORDER BY order_index ASC, name ASC',
-                [$userId, $type]
-            );
+            $sql = 'SELECT * FROM categories WHERE user_id = ? AND type = ? AND is_active = 1 ORDER BY order_index ASC, name ASC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $type]);
         } else {
-            $stmt = $this->db->query(
-                'SELECT * FROM categories WHERE user_id = ? AND is_active = 1 ORDER BY type ASC, order_index ASC, name ASC',
-                [$userId]
-            );
+            $sql = 'SELECT * FROM categories WHERE user_id = ? AND is_active = 1 ORDER BY type ASC, order_index ASC, name ASC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId]);
         }
-        $result = $stmt->get_result();
-        $out    = [];
-        while ($row = $result->fetch_assoc()) $out[] = $this->map($row);
-        $stmt->close();
-        return $out;
+        
+        $rows = $stmt->fetchAll();
+        return array_map([$this, 'map'], $rows);
     }
 
     public function create(Category $c): int
     {
-        $this->db->query(
-            'INSERT INTO categories (user_id, name, description, type, color, icon) VALUES (?, ?, ?, ?, ?, ?)',
-            [$c->user_id, $c->name, $c->description ?? '', $c->type, $c->color, $c->icon]
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO categories (user_id, name, description, type, color, icon) VALUES (?, ?, ?, ?, ?, ?)'
         );
-        return $this->db->lastInsertId();
+        $stmt->execute([
+            $c->user_id,
+            $c->name,
+            $c->description ?? '',
+            $c->type,
+            $c->color,
+            $c->icon
+        ]);
+        return (int)$this->pdo->lastInsertId();
     }
 
     public function update(Category $c): bool
     {
-        $this->db->query(
-            'UPDATE categories SET name=?, description=?, color=?, icon=?, order_index=?, updated_at=NOW() WHERE id=?',
-            [$c->name, $c->description ?? '', $c->color, $c->icon, $c->order_index, $c->id]
+        $stmt = $this->pdo->prepare(
+            'UPDATE categories SET name=?, description=?, color=?, icon=?, order_index=?, updated_at=CURRENT_TIMESTAMP WHERE id=?'
         );
-        return $this->db->affectedRows() >= 0;
+        $stmt->execute([
+            $c->name,
+            $c->description ?? '',
+            $c->color,
+            $c->icon,
+            $c->order_index,
+            $c->id
+        ]);
+        return $stmt->rowCount() > 0;
     }
 
     public function delete(int $id, int $userId): bool
     {
-        $this->db->query('DELETE FROM categories WHERE id=? AND user_id=?', [$id, $userId]);
-        return $this->db->affectedRows() > 0;
+        $stmt = $this->pdo->prepare('DELETE FROM categories WHERE id=? AND user_id=?');
+        $stmt->execute([$id, $userId]);
+        return $stmt->rowCount() > 0;
     }
 
     /**
@@ -84,10 +92,9 @@ class CategoryRepository
     {
         $name = $type === 'income' ? 'Outros (Receita)' : 'Outros (Despesa)';
 
-        $stmt   = $this->db->query('SELECT id FROM categories WHERE user_id=? AND name=? AND type=?', [$userId, $name, $type]);
-        $result = $stmt->get_result();
-        $row    = $result->fetch_assoc();
-        $stmt->close();
+        $stmt = $this->pdo->prepare('SELECT id FROM categories WHERE user_id=? AND name=? AND type=?');
+        $stmt->execute([$userId, $name, $type]);
+        $row = $stmt->fetch();
 
         if ($row) return (int)$row['id'];
 

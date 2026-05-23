@@ -88,5 +88,3 @@ backend/
 ## Notes
 
 - All protected routes require JWT token in Authorization header
-- Default admin credentials: admin@personal-finance.com / admin
-- Default user credentials: user@personal-finance.com / password

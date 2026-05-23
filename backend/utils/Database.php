@@ -2,76 +2,116 @@
 
 class Database
 {
-    private static ?self $instance = null;
-    private mysqli $connection;
+    private static ?Database $instance = null;
+    private static ?PDO $pdo = null;
+    private static array $config;
 
     private function __construct()
     {
-        $host     = getenv('DB_HOST')     ?: 'localhost';
-        $user     = getenv('DB_USER')     ?: 'root';
-        $password = getenv('DB_PASSWORD') ?: '';
-        $database = getenv('DB_NAME')     ?: 'wallet_vision';
-        $port     = (int)(getenv('DB_PORT') ?: 3306);
-
-        $this->connection = new mysqli($host, $user, $password, $database, $port);
-
-        if ($this->connection->connect_error) {
-            http_response_code(500);
-            echo json_encode([
-                'success' => false,
-                'message' => 'Database connection failed: ' . $this->connection->connect_error
-            ]);
-            exit;
-        }
-
-        $this->connection->set_charset('utf8mb4');
     }
 
-    public static function getInstance(): self
+    public static function init(): void
+    {
+        if (self::$pdo === null) {
+            self::$config = require __DIR__ . '/../config/database.php';
+            
+            // Try MySQL first, fallback to SQLite
+            try {
+                self::connectMySQL();
+            } catch (PDOException $e) {
+                // Fallback to SQLite for development
+                self::connectSQLite();
+            }
+        }
+    }
+
+    private static function connectMySQL(): void
+    {
+        $host = self::$config['host'];
+        $database = self::$config['database'];
+        $user = self::$config['user'];
+        $password = self::$config['password'];
+        $port = self::$config['port'];
+        $charset = self::$config['charset'];
+
+        $dsn = "mysql:host=$host;port=$port;dbname=$database;charset=$charset";
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+
+        self::$pdo = new PDO($dsn, $user, $password, $options);
+    }
+
+    private static function connectSQLite(): void
+    {
+        $databasePath = __DIR__ . '/../database/dev.db';
+        
+        // Create database directory if it doesn't exist
+        $dir = dirname($databasePath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
+
+        $dsn = "sqlite:$databasePath";
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+
+        self::$pdo = new PDO($dsn, null, null, $options);
+        
+        // Enable foreign keys in SQLite
+        self::$pdo->exec('PRAGMA foreign_keys = ON;');
+    }
+
+    public static function getInstance(): Database
     {
         if (self::$instance === null) {
-            self::$instance = new self();
+            self::init();
+            self::$instance = new Database();
         }
         return self::$instance;
     }
 
-    public function getConnection(): mysqli
+    public static function getConnection(): PDO
     {
-        return $this->connection;
+        self::init();
+        return self::$pdo;
     }
 
-    public function query(string $sql, array $params = []): mysqli_stmt
+    /**
+     * Execute a prepared statement with parameters
+     */
+    public function query(string $sql, array $params = [])
     {
-        $stmt = $this->connection->prepare($sql);
-
-        if (!$stmt) {
-            throw new Exception('Prepare failed: ' . $this->connection->error . ' | SQL: ' . $sql);
+        self::init();
+        $stmt = self::$pdo->prepare($sql);
+        if ($params) {
+            $stmt->execute($params);
+        } else {
+            $stmt->execute();
         }
-
-        if (!empty($params)) {
-            $types = '';
-            foreach ($params as $param) {
-                if (is_int($param))   $types .= 'i';
-                elseif (is_float($param)) $types .= 'd';
-                else                  $types .= 's';
-            }
-            $stmt->bind_param($types, ...$params);
-        }
-
-        if (!$stmt->execute()) {
-            throw new Exception('Execute failed: ' . $stmt->error);
-        }
-
         return $stmt;
     }
 
+    /**
+     * Get the last inserted ID
+     */
     public function lastInsertId(): int
     {
-        return (int) $this->connection->insert_id;
+        self::init();
+        return (int)self::$pdo->lastInsertId();
     }
 
-    public function affectedRows(): int
+    /**
+     * Magic method to access PDO methods directly for compatibility
+     */
+    public function __call($name, $arguments)
     {
-        return $this->connection->affected_rows;
+        self::init();
+        return call_user_func_array([self::$pdo, $name], $arguments);
     }
 }

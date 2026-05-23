@@ -3,28 +3,25 @@
 namespace App\Repositories;
 
 use App\Models\Transaction;
-use App\Utils\Database;
+use App\Database;
 
 class TransactionRepository
 {
-    private Database $db;
+    private \PDO $pdo;
 
     public function __construct()
     {
-        $this->db = Database::getInstance();
+        $this->pdo = Database::getInstance();
     }
 
     public function findById(int $id, int $userId): ?Transaction
     {
-        $stmt = $this->db->query(
-            'SELECT * FROM transactions WHERE id = ? AND user_id = ?',
-            [$id, $userId]
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM transactions WHERE id = ? AND user_id = ?'
         );
-
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-
+        $stmt->execute([$id, $userId]);
+        $row = $stmt->fetch();
+        
         if (!$row) {
             return null;
         }
@@ -37,184 +34,166 @@ class TransactionRepository
         $offset = ($page - 1) * $perPage;
 
         if ($type) {
-            $stmt = $this->db->query(
-                'SELECT t.*, c.name as category_name FROM transactions t 
-                 LEFT JOIN categories c ON t.category_id = c.id
-                 WHERE t.user_id = ? AND t.type = ?
-                 ORDER BY t.date DESC LIMIT ? OFFSET ?',
-                [$userId, $type, $perPage, $offset]
-            );
+            $sql = 'SELECT t.*, c.name as category_name FROM transactions t 
+                    LEFT JOIN categories c ON t.category_id = c.id
+                    WHERE t.user_id = ? AND t.type = ?
+                    ORDER BY t.date DESC LIMIT ? OFFSET ?';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $type, $perPage, $offset]);
         } else {
-            $stmt = $this->db->query(
-                'SELECT t.*, c.name as category_name FROM transactions t 
-                 LEFT JOIN categories c ON t.category_id = c.id
-                 WHERE t.user_id = ?
-                 ORDER BY t.date DESC LIMIT ? OFFSET ?',
-                [$userId, $perPage, $offset]
-            );
+            $sql = 'SELECT t.*, c.name as category_name FROM transactions t 
+                    LEFT JOIN categories c ON t.category_id = c.id
+                    WHERE t.user_id = ?
+                    ORDER BY t.date DESC LIMIT ? OFFSET ?';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $perPage, $offset]);
         }
 
-        $result = $stmt->get_result();
-        $transactions = [];
-
-        while ($row = $result->fetch_assoc()) {
-            $transactions[] = $this->mapToModel($row);
-        }
-
-        $stmt->close();
-
-        return $transactions;
+        $rows = $stmt->fetchAll();
+        return array_map([$this, 'mapToModel'], $rows);
     }
 
-    public function findByMonth(int $userId, int $month, int $year, ?string $type = null): array
+    public function getTotalCount(int $userId, ?string $type = null): int
     {
         if ($type) {
-            $stmt = $this->db->query(
-                'SELECT t.*, c.name as category_name FROM transactions t 
-                 LEFT JOIN categories c ON t.category_id = c.id
-                 WHERE t.user_id = ? AND t.month = ? AND t.year = ? AND t.type = ?
-                 ORDER BY t.date DESC',
-                [$userId, $month, $year, $type]
-            );
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) as total FROM transactions WHERE user_id = ? AND type = ?');
+            $stmt->execute([$userId, $type]);
         } else {
-            $stmt = $this->db->query(
-                'SELECT t.*, c.name as category_name FROM transactions t 
-                 LEFT JOIN categories c ON t.category_id = c.id
-                 WHERE t.user_id = ? AND t.month = ? AND t.year = ?
-                 ORDER BY t.date DESC',
-                [$userId, $month, $year]
-            );
+            $stmt = $this->pdo->prepare('SELECT COUNT(*) as total FROM transactions WHERE user_id = ?');
+            $stmt->execute([$userId]);
         }
-
-        $result = $stmt->get_result();
-        $transactions = [];
-
-        while ($row = $result->fetch_assoc()) {
-            $transactions[] = $this->mapToModel($row);
-        }
-
-        $stmt->close();
-
-        return $transactions;
+        
+        $row = $stmt->fetch();
+        return (int)$row['total'];
     }
 
-    public function getMonthlyStats(int $userId, int $month, int $year): array
+    public function getMonthlyTransactions(int $userId, int $month, int $year, ?string $type = null): array
     {
-        $stmt = $this->db->query(
-            'SELECT type, SUM(amount) as total FROM transactions 
-             WHERE user_id = ? AND month = ? AND year = ?
-             GROUP BY type',
-            [$userId, $month, $year]
-        );
-
-        $result = $stmt->get_result();
-        $stats = ['income' => 0, 'expense' => 0];
-
-        while ($row = $result->fetch_assoc()) {
-            $stats[$row['type']] = (float) $row['total'];
+        if ($type) {
+            $sql = 'SELECT t.*, c.name as category_name FROM transactions t 
+                    LEFT JOIN categories c ON t.category_id = c.id
+                    WHERE t.user_id = ? AND t.month = ? AND t.year = ? AND t.type = ?
+                    ORDER BY t.date DESC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $month, $year, $type]);
+        } else {
+            $sql = 'SELECT t.*, c.name as category_name FROM transactions t 
+                    LEFT JOIN categories c ON t.category_id = c.id
+                    WHERE t.user_id = ? AND t.month = ? AND t.year = ?
+                    ORDER BY t.date DESC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $month, $year]);
         }
 
-        $stmt->close();
+        $rows = $stmt->fetchAll();
+        return array_map([$this, 'mapToModel'], $rows);
+    }
 
-        return $stats;
+    public function getBalance(int $userId, ?int $month = null, ?int $year = null): array
+    {
+        if ($month && $year) {
+            $sql = 'SELECT 
+                        COALESCE(SUM(CASE WHEN type = "income" THEN amount ELSE 0 END), 0) as income,
+                        COALESCE(SUM(CASE WHEN type = "expense" THEN amount ELSE 0 END), 0) as expense,
+                        COALESCE(SUM(CASE WHEN type = "income" THEN amount ELSE -amount END), 0) as balance
+                    FROM transactions 
+                    WHERE user_id = ? AND month = ? AND year = ?';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $month, $year]);
+        } else {
+            $sql = 'SELECT 
+                        COALESCE(SUM(CASE WHEN type = "income" THEN amount ELSE 0 END), 0) as income,
+                        COALESCE(SUM(CASE WHEN type = "expense" THEN amount ELSE 0 END), 0) as expense,
+                        COALESCE(SUM(CASE WHEN type = "income" THEN amount ELSE -amount END), 0) as balance
+                    FROM transactions 
+                    WHERE user_id = ?';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId]);
+        }
+
+        $row = $stmt->fetch();
+        return [
+            'income' => (float)($row['income'] ?? 0),
+            'expense' => (float)($row['expense'] ?? 0),
+            'balance' => (float)($row['balance'] ?? 0)
+        ];
     }
 
     public function create(Transaction $transaction): int
     {
-        $month = date('n', strtotime($transaction->date));
-        $year = date('Y', strtotime($transaction->date));
+        $sql = 'INSERT INTO transactions 
+                (user_id, category_id, type, description, amount, date, month, year, notes, attachment_url, is_recurring, recurrence_pattern) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            $transaction->user_id,
+            $transaction->category_id,
+            $transaction->type,
+            $transaction->description,
+            $transaction->amount,
+            $transaction->date,
+            $transaction->month,
+            $transaction->year,
+            $transaction->notes,
+            $transaction->attachment_url,
+            $transaction->is_recurring ? 1 : 0,
+            $transaction->recurrence_pattern
+        ]);
 
-        $stmt = $this->db->query(
-            'INSERT INTO transactions (user_id, category_id, type, description, amount, 
-             date, month, year, notes, is_recurring, recurrence_pattern) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                $transaction->user_id,
-                $transaction->category_id,
-                $transaction->type,
-                $transaction->description,
-                $transaction->amount,
-                $transaction->date,
-                $month,
-                $year,
-                $transaction->notes,
-                $transaction->is_recurring ? 1 : 0,
-                $transaction->recurrence_pattern
-            ]
-        );
-
-        return $this->db->lastInsertId();
+        return (int)$this->pdo->lastInsertId();
     }
 
-    public function update(Transaction $transaction): bool
+    public function update(Transaction $transaction): void
     {
-        $month = date('n', strtotime($transaction->date));
-        $year = date('Y', strtotime($transaction->date));
-
-        $stmt = $this->db->query(
-            'UPDATE transactions SET category_id = ?, description = ?, amount = ?, 
-             date = ?, month = ?, year = ?, notes = ?, is_recurring = ?, 
-             recurrence_pattern = ?, updated_at = NOW() WHERE id = ?',
-            [
-                $transaction->category_id,
-                $transaction->description,
-                $transaction->amount,
-                $transaction->date,
-                $month,
-                $year,
-                $transaction->notes,
-                $transaction->is_recurring ? 1 : 0,
-                $transaction->recurrence_pattern,
-                $transaction->id
-            ]
-        );
-
-        return $this->db->affectedRows() > 0;
+        $sql = 'UPDATE transactions 
+                SET category_id = ?, type = ?, description = ?, amount = ?, date = ?, month = ?, year = ?, 
+                    notes = ?, attachment_url = ?, is_recurring = ?, recurrence_pattern = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND user_id = ?';
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            $transaction->category_id,
+            $transaction->type,
+            $transaction->description,
+            $transaction->amount,
+            $transaction->date,
+            $transaction->month,
+            $transaction->year,
+            $transaction->notes,
+            $transaction->attachment_url,
+            $transaction->is_recurring ? 1 : 0,
+            $transaction->recurrence_pattern,
+            $transaction->id,
+            $transaction->user_id
+        ]);
     }
 
-    public function delete(int $id, int $userId): bool
+    public function delete(int $id, int $userId): void
     {
-        $stmt = $this->db->query(
-            'DELETE FROM transactions WHERE id = ? AND user_id = ?',
-            [$id, $userId]
-        );
-
-        return $this->db->affectedRows() > 0;
-    }
-
-    public function getTotalCount(int $userId): int
-    {
-        $stmt = $this->db->query(
-            'SELECT COUNT(*) as total FROM transactions WHERE user_id = ?',
-            [$userId]
-        );
-
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-
-        return (int) $row['total'];
+        $stmt = $this->pdo->prepare('DELETE FROM transactions WHERE id = ? AND user_id = ?');
+        $stmt->execute([$id, $userId]);
     }
 
     private function mapToModel(array $row): Transaction
     {
-        $transaction = new Transaction();
-        $transaction->id = (int) $row['id'];
-        $transaction->user_id = (int) $row['user_id'];
-        $transaction->category_id = (int) $row['category_id'];
-        $transaction->category_name = $row['category_name'] ?? null;
-        $transaction->type = $row['type'];
-        $transaction->description = $row['description'];
-        $transaction->amount = (float) $row['amount'];
-        $transaction->date = $row['date'];
-        $transaction->month = (int) $row['month'];
-        $transaction->year = (int) $row['year'];
-        $transaction->notes = $row['notes'];
-        $transaction->is_recurring = (bool) $row['is_recurring'];
-        $transaction->recurrence_pattern = $row['recurrence_pattern'];
-        $transaction->created_at = $row['created_at'];
-        $transaction->updated_at = $row['updated_at'];
-
-        return $transaction;
+        $t                 = new Transaction();
+        $t->id             = (int)$row['id'];
+        $t->user_id        = (int)$row['user_id'];
+        $t->category_id    = (int)$row['category_id'];
+        $t->category_name  = $row['category_name'] ?? null;
+        $t->type           = $row['type'];
+        $t->description    = $row['description'];
+        $t->amount         = (float)$row['amount'];
+        $t->date           = $row['date'];
+        $t->month          = (int)$row['month'];
+        $t->year           = (int)$row['year'];
+        $t->notes          = $row['notes'] ?? null;
+        $t->attachment_url = $row['attachment_url'] ?? null;
+        $t->is_recurring   = (bool)$row['is_recurring'];
+        $t->recurrence_pattern = $row['recurrence_pattern'] ?? null;
+        $t->created_at     = $row['created_at'] ?? null;
+        $t->updated_at     = $row['updated_at'] ?? null;
+        return $t;
     }
 }

@@ -3,28 +3,23 @@
 namespace App\Repositories;
 
 use App\Models\Goal;
-use App\Utils\Database;
+use App\Database;
 
 class GoalRepository
 {
-    private Database $db;
+    private \PDO $pdo;
 
     public function __construct()
     {
-        $this->db = Database::getInstance();
+        $this->pdo = Database::getInstance();
     }
 
     public function findById(int $id, int $userId): ?Goal
     {
-        $stmt = $this->db->query(
-            'SELECT * FROM goals WHERE id = ? AND user_id = ?',
-            [$id, $userId]
-        );
-
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-
+        $stmt = $this->pdo->prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?');
+        $stmt->execute([$id, $userId]);
+        $row = $stmt->fetch();
+        
         if (!$row) {
             return null;
         }
@@ -35,87 +30,74 @@ class GoalRepository
     public function findByUser(int $userId, ?string $status = null): array
     {
         if ($status) {
-            $stmt = $this->db->query(
-                'SELECT * FROM goals WHERE user_id = ? AND status = ?
-                 ORDER BY priority DESC, end_date ASC',
-                [$userId, $status]
-            );
+            $sql = 'SELECT * FROM goals WHERE user_id = ? AND status = ?
+                    ORDER BY priority DESC, end_date ASC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId, $status]);
         } else {
-            $stmt = $this->db->query(
-                'SELECT * FROM goals WHERE user_id = ?
-                 ORDER BY priority DESC, end_date ASC',
-                [$userId]
-            );
+            $sql = 'SELECT * FROM goals WHERE user_id = ?
+                    ORDER BY priority DESC, end_date ASC';
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute([$userId]);
         }
 
-        $result = $stmt->get_result();
-        $goals = [];
-
-        while ($row = $result->fetch_assoc()) {
-            $goals[] = $this->mapToModel($row);
-        }
-
-        $stmt->close();
-
-        return $goals;
+        $rows = $stmt->fetchAll();
+        return array_map([$this, 'mapToModel'], $rows);
     }
 
     public function create(Goal $goal): int
     {
-        $stmt = $this->db->query(
-            'INSERT INTO goals (user_id, title, description, target_amount, start_date, 
-             end_date, category, color, icon, priority, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                $goal->user_id,
-                $goal->title,
-                $goal->description,
-                $goal->target_amount,
-                $goal->start_date,
-                $goal->end_date,
-                $goal->category,
-                $goal->color,
-                $goal->icon,
-                $goal->priority,
-                $goal->status
-            ]
-        );
+        $sql = 'INSERT INTO goals (user_id, title, description, target_amount, start_date, 
+                end_date, category, color, icon, priority, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            $goal->user_id,
+            $goal->title,
+            $goal->description,
+            $goal->target_amount,
+            $goal->start_date,
+            $goal->end_date,
+            $goal->category,
+            $goal->color,
+            $goal->icon,
+            $goal->priority,
+            $goal->status
+        ]);
 
-        return $this->db->lastInsertId();
+        return (int)$this->pdo->lastInsertId();
     }
 
     public function update(Goal $goal): bool
     {
-        $stmt = $this->db->query(
-            'UPDATE goals SET title = ?, description = ?, target_amount = ?, 
-             current_amount = ?, end_date = ?, category = ?, color = ?, icon = ?, 
-             priority = ?, status = ?, updated_at = NOW() WHERE id = ?',
-            [
-                $goal->title,
-                $goal->description,
-                $goal->target_amount,
-                $goal->current_amount,
-                $goal->end_date,
-                $goal->category,
-                $goal->color,
-                $goal->icon,
-                $goal->priority,
-                $goal->status,
-                $goal->id
-            ]
-        );
+        $sql = 'UPDATE goals SET title = ?, description = ?, target_amount = ?, 
+                current_amount = ?, end_date = ?, category = ?, color = ?, icon = ?, 
+                priority = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+        
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            $goal->title,
+            $goal->description,
+            $goal->target_amount,
+            $goal->current_amount,
+            $goal->end_date,
+            $goal->category,
+            $goal->color,
+            $goal->icon,
+            $goal->priority,
+            $goal->status,
+            $goal->id
+        ]);
 
-        return $this->db->affectedRows() > 0;
+        return $stmt->rowCount() > 0;
     }
 
     public function delete(int $id, int $userId): bool
     {
-        $stmt = $this->db->query(
-            'DELETE FROM goals WHERE id = ? AND user_id = ?',
-            [$id, $userId]
-        );
-
-        return $this->db->affectedRows() > 0;
+        $stmt = $this->pdo->prepare('DELETE FROM goals WHERE id = ? AND user_id = ?');
+        $stmt->execute([$id, $userId]);
+        return $stmt->rowCount() > 0;
     }
 
     private function mapToModel(array $row): Goal

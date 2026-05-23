@@ -10,10 +10,16 @@ use App\Middlewares\AuthMiddleware;
 CorsMiddleware::handle();
 
 $method = $_SERVER['REQUEST_METHOD'];
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+$requestUri = $_SERVER['REQUEST_URI'];
+
+// Extract the path by removing query string and scripts
+$path = parse_url($requestUri, PHP_URL_PATH);
+
+// Remove base path if any (in case of public subdirectory)
+$path = str_replace('/public', '', $path);
 $path = str_replace('\\', '/', $path);
-$path = preg_replace('#^/public#', '', $path);
-$path = trim($path, '/');
+$path = ltrim($path, '/');
+$path = rtrim($path, '/');
 
 switch ($path) {
     // Auth routes (public)
@@ -37,6 +43,19 @@ switch ($path) {
             $GLOBALS['auth_payload'] = $payload;
             $controller = new \App\Controllers\AuthController();
             $controller->logout();
+        }
+        break;
+    case 'auth/forgot-password':
+        if ($method === 'POST') {
+            $controller = new \App\Controllers\AuthController();
+            $controller->forgotPassword();
+        }
+        break;
+
+    case 'auth/reset-password':
+        if ($method === 'POST') {
+            $controller = new \App\Controllers\AuthController();
+            $controller->resetPassword();
         }
         break;
 
@@ -218,6 +237,15 @@ switch ($path) {
             $GLOBALS['auth_payload'] = $payload;
             $controller = new \App\Controllers\AdminController();
             $controller->getStatistics();
+        }
+        break;
+
+    case 'admin/users/update-role':
+        if ($method === 'PUT') {
+            $payload = AuthMiddleware::authenticate();
+            $GLOBALS['auth_payload'] = $payload;
+            $controller = new \App\Controllers\AdminController();
+            $controller->updateUserRole();
         }
         break;
 

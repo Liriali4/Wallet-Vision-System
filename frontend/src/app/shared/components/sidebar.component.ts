@@ -1,7 +1,8 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
+import { I18nService } from '../../core/services/i18n.service';
 
 interface NavItem {
   label: string;
@@ -17,19 +18,19 @@ interface NavItem {
   imports: [CommonModule, RouterModule],
   template: `
     <aside
-      class="flex flex-col h-screen sticky top-0 border-r transition-all duration-300 z-30"
-      [class]="collapsed
-        ? 'w-[60px] bg-[#FDFAF8] border-[#EAD5C9] dark:bg-[#1C1612] dark:border-[#2A211B]'
-        : 'w-[220px] bg-[#FDFAF8] border-[#EAD5C9] dark:bg-[#1C1612] dark:border-[#2A211B]'"
+      class="flex flex-col h-screen sticky top-0 border-r transition-all duration-300 z-50"
+      [class]="getSidebarClasses()"
     >
       <!-- Logo -->
-      <div class="flex items-center gap-3 px-4 h-14 border-b border-[#EAD5C9] dark:border-[#2A211B] flex-shrink-0">
-        <div class="w-7 h-7 rounded-lg bg-[#3D312A] dark:bg-[#F0E6DF] flex items-center justify-center flex-shrink-0">
-          <svg class="w-4 h-4 text-[#F5EBE6] dark:text-[#1C1612]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+      <div class="flex items-center gap-3 px-4 h-14 border-b flex-shrink-0" [class]="getHeaderBorderClass()">
+        <div class="w-7 h-7 rounded-lg bg-[var(--wv-accent-primary)] flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75" />
           </svg>
         </div>
-        <span *ngIf="!collapsed" class="text-sm font-semibold text-[#3D312A] dark:text-[#F0E6DF] tracking-tight">Wallet Vision</span>
+        <span *ngIf="!collapsed" class="text-sm font-semibold text-[var(--wv-text-primary)] tracking-tight">
+          Wallet Vision
+        </span>
       </div>
 
       <!-- Nav -->
@@ -40,25 +41,27 @@ interface NavItem {
             routerLinkActive="active"
             [routerLinkActiveOptions]="{ exact: !!item.exact }"
             class="sidebar-link"
-            [title]="collapsed ? item.label : ''"
+            [class]="getLinkClasses()"
+            [title]="collapsed ? t(item.label, item.labelEn) : ''"
           >
             <span class="flex-shrink-0 w-5 h-5" [innerHTML]="item.icon"></span>
-            <span *ngIf="!collapsed" class="truncate">{{ item.label }}</span>
+            <span *ngIf="!collapsed" class="truncate">{{ t(item.label, item.labelEn) }}</span>
           </a>
         </ng-container>
       </nav>
 
-      <!-- User / Logout -->
-      <div class="border-t border-[#EAD5C9] dark:border-[#2A211B] p-2 flex-shrink-0">
+      <!-- Footer -->
+      <div class="border-t p-2 flex-shrink-0" [class]="getHeaderBorderClass()">
         <button
           (click)="logout()"
-          class="sidebar-link w-full text-[#D98A74] hover:!text-[#D98A74] hover:!bg-[rgba(217,138,116,0.08)]"
-          [title]="collapsed ? 'Sair' : ''"
+          class="sidebar-link w-full text-[var(--wv-danger)] hover:!text-[var(--wv-danger)] hover:!bg-[var(--wv-danger-bg)]"
+          [class]="getLinkClasses()"
+          [title]="collapsed ? t('Sair', 'Logout') : ''"
         >
           <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
           </svg>
-          <span *ngIf="!collapsed">Sair</span>
+          <span *ngIf="!collapsed">{{ t('Sair', 'Logout') }}</span>
         </button>
       </div>
     </aside>
@@ -66,6 +69,9 @@ interface NavItem {
 })
 export class SidebarComponent implements OnInit {
   @Input() collapsed = false;
+  @Input() isOpen = false;
+  @Input() isMobile = false;
+  @Output() close = new EventEmitter<void>();
 
   navItems: NavItem[] = [
     {
@@ -86,7 +92,7 @@ export class SidebarComponent implements OnInit {
     },
   ];
 
-  constructor(private authService: AuthService) {}
+  constructor(private authService: AuthService, public i18n: I18nService) {}
 
   ngOnInit(): void {
     const user = this.authService.getCurrentUser();
@@ -98,8 +104,38 @@ export class SidebarComponent implements OnInit {
     }
   }
 
+  getSidebarClasses(): string {
+    const base = 'bg-[var(--wv-surface)] border-[var(--wv-border-light)]';
+    
+    if (this.isMobile) {
+      return this.isOpen 
+        ? `${base} w-[220px] translate-x-0 shadow-xl`
+        : `${base} w-[220px] -translate-x-full absolute`;
+    }
+    
+    return this.collapsed
+      ? `${base} w-[60px]`
+      : `${base} w-[220px]`;
+  }
+
+  getHeaderBorderClass(): string {
+    return 'border-[var(--wv-border-light)]';
+  }
+
+  getLinkClasses(): string {
+    return '';
+  }
+
+  closeSidebar(): void {
+    this.close.emit();
+  }
+
   logout(): void {
     this.authService.logout();
     window.location.href = '/auth/login';
+  }
+
+  t(pt: string, en: string): string {
+    return this.i18n.getLanguage() === 'pt' ? pt : en;
   }
 }

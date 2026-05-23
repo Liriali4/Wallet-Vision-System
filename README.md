@@ -31,6 +31,7 @@ Wallet/
 ```bash
 cd server
 php -S localhost:8000 -t public
+ C:\xampp\php\php.exe -S localhost:8000
 ```
 
 ### Frontend
@@ -41,18 +42,6 @@ npm start
 ```
 
 Acesse: http://localhost:4200
-
-## 📋 Credenciais de Teste
-
-```
-Admin:
-  Email: admin@personal-finance.com
-  Senha: admin
-
-User:
-  Email: user@personal-finance.com
-  Senha: password
-```
 
 ## ✨ Funcionalidades
 

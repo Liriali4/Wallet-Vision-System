@@ -1,22 +1,13 @@
-import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+﻿import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, throwError } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
-import { throwError } from 'rxjs';
 import { ApiService } from './api.service';
+import { User, AuthData, LoginCredentials, RegisterData } from '../interfaces/api.interface';
 
-interface User {
-  id: number;
-  email: string;
-  full_name: string;
-  role: string;
-  locale: string;
-  theme: string;
-}
-
-interface LoginResponse {
-  user: User;
-  token: string;
-}
+type PasswordResetResponse = {
+  reset_url?: string;
+  email_delivery?: string;
+} | null;
 
 @Injectable({
   providedIn: 'root'
@@ -24,8 +15,12 @@ interface LoginResponse {
 export class AuthService {
   private currentUserSubject = new BehaviorSubject<User | null>(null);
   public currentUser$ = this.currentUserSubject.asObservable();
+
   private isAuthenticatedSubject = new BehaviorSubject<boolean>(false);
   public isAuthenticated$ = this.isAuthenticatedSubject.asObservable();
+
+  private loadingSubject = new BehaviorSubject<boolean>(false);
+  public loading$ = this.loadingSubject.asObservable();
 
   constructor(private apiService: ApiService) {
     this.checkAuth();
@@ -37,33 +32,52 @@ export class AuthService {
 
     if (token && user) {
       try {
-        this.currentUserSubject.next(JSON.parse(user));
+        const parsedUser = JSON.parse(user);
+        this.currentUserSubject.next(parsedUser);
         this.isAuthenticatedSubject.next(true);
-      } catch {
+      } catch (error) {
+        console.error('Erro ao parsear usuario do localStorage:', error);
         this.logout();
       }
     }
   }
 
-  register(email: string, password: string, fullName: string): Observable<LoginResponse> {
-    return this.apiService.post<LoginResponse>('auth/register', {
-      email,
-      password,
-      full_name: fullName
+  register(data: RegisterData): Observable<AuthData> {
+    this.loadingSubject.next(true);
+
+    return this.apiService.post<AuthData>('auth/register', {
+      email: data.email,
+      password: data.password,
+      full_name: data.full_name
     }).pipe(
-      tap(response => this.handleAuthResponse(response)),
-      catchError(error => throwError(() => error))
+      tap(authData => this.handleAuthResponse(authData)),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
     );
   }
 
-  login(email: string, password: string): Observable<LoginResponse> {
-    return this.apiService.post<LoginResponse>('auth/login', {
-      email,
-      password
-    }).pipe(
-      tap(response => this.handleAuthResponse(response)),
-      catchError(error => throwError(() => error))
+  login(credentials: LoginCredentials): Observable<AuthData> {
+    this.loadingSubject.next(true);
+
+    return this.apiService.post<AuthData>('auth/login', credentials).pipe(
+      tap(authData => this.handleAuthResponse(authData)),
+      catchError(error => {
+        this.loadingSubject.next(false);
+        return throwError(() => error);
+      }),
+      tap(() => this.loadingSubject.next(false))
     );
+  }
+
+  requestPasswordReset(email: string): Observable<PasswordResetResponse> {
+    return this.apiService.post<PasswordResetResponse>('auth/forgot-password', { email });
+  }
+
+  resetPassword(token: string, password: string): Observable<void> {
+    return this.apiService.post<void>('auth/reset-password', { token, password });
   }
 
   logout(): void {
@@ -73,11 +87,24 @@ export class AuthService {
     this.isAuthenticatedSubject.next(false);
   }
 
-  private handleAuthResponse(response: LoginResponse): void {
-    localStorage.setItem('token', response.token);
-    localStorage.setItem('user', JSON.stringify(response.user));
-    this.currentUserSubject.next(response.user);
-    this.isAuthenticatedSubject.next(true);
+  updateProfile(data: Partial<User>): Observable<void> {
+    return this.apiService.put<void>('auth/profile', data).pipe(
+      tap(() => {
+        const currentUser = this.currentUserSubject.value;
+        if (currentUser) {
+          const updatedUser = { ...currentUser, ...data };
+          localStorage.setItem('user', JSON.stringify(updatedUser));
+          this.currentUserSubject.next(updatedUser);
+        }
+      })
+    );
+  }
+
+  changePassword(currentPassword: string, newPassword: string): Observable<void> {
+    return this.apiService.post<void>('auth/change-password', {
+      current_password: currentPassword,
+      new_password: newPassword
+    });
   }
 
   getCurrentUser(): User | null {
@@ -90,5 +117,26 @@ export class AuthService {
 
   getToken(): string | null {
     return localStorage.getItem('token');
+  }
+
+  isAdmin(): boolean {
+    const user = this.currentUserSubject.value;
+    return user?.role === 'admin';
+  }
+
+  private handleAuthResponse(data: AuthData): void {
+    if (!data || !data.token || !data.user) {
+      throw new Error('Dados de autenticacao invalidos');
+    }
+
+    try {
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      this.currentUserSubject.next(data.user);
+      this.isAuthenticatedSubject.next(true);
+    } catch (error) {
+      console.error('Erro ao salvar dados de autenticacao:', error);
+      throw new Error('Falha ao salvar sessao');
+    }
   }
 }
